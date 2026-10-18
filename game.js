@@ -1,6 +1,6 @@
-// ===== SETUP =====
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+import * as THREE from 'three';
+
+// ===== UI ELEMENTS =====
 const grassCountEl = document.getElementById('grassCount');
 const grassTotalEl = document.getElementById('grassTotal');
 const restartBtn = document.getElementById('restartBtn');
@@ -10,240 +10,322 @@ const rotateOverlay = document.getElementById('rotateOverlay');
 const startOverlay = document.getElementById('startOverlay');
 const startBtn = document.getElementById('startBtn');
 
-const TILE_SIZE = 40;
+// ===== KONFIGURASI GAME =====
+const TILE_SIZE = 4;       // Ukuran 1 kotak peta dalam 3D
 const MAP_WIDTH = 20;
 const MAP_HEIGHT = 12;
-const PLAYER_RADIUS = 14;
-const SPEED = 220; // pixels per second
+const SPEED = 14;          // Kecepatan jalan karakter
+const PLAYER_RADIUS = 1.5; // Radius tabrakan karakter
 
-// ===== STATE =====
-let map = [];
-let items = [];
-let player = { x: 0, y: 0, facing: 0 }; // facing: radian
+let map = [];              // Array 2D untuk data peta (0 = tanah, 1 = air)
+let items = [];            // Array untuk data rumput
+let isGameStarted = false;
+
+// State Input
 let joystick = { active: false, dx: 0, dy: 0, touchId: null };
 let keys = { up: false, down: false, left: false, right: false };
-let gameStarted = false;
-let isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-// ===== MAP INIT =====
+// ===== SETUP THREE.JS (SCENE, CAMERA, RENDERER) =====
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB); // Warna langit
+scene.fog = new THREE.Fog(0x87CEEB, 40, 90);  // Efek kabut di kejauhan
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true; // Aktifkan bayangan
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+// Pencahayaan
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(20, 40, 20);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
+scene.add(dirLight);
+
+// ===== KARAKTER 3D (PLAYER) =====
+const playerGroup = new THREE.Group();
+
+// Badan Karakter (Kapsul)
+const bodyGeo = new THREE.CapsuleGeometry(1, 1.2, 4, 16);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00f2ea, roughness: 0.2 });
+const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+bodyMesh.castShadow = true;
+bodyMesh.position.y = 1.6;
+playerGroup.add(bodyMesh);
+
+// Mata (Putih & Hitam)
+const eyeWhiteGeo = new THREE.SphereGeometry(0.35, 16, 16);
+const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const eyeBlackGeo = new THREE.SphereGeometry(0.15, 16, 16);
+const eyeBlackMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+// Mata Kiri
+const leftEye = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
+leftEye.position.set(-0.4, 2.2, 0.9);
+const leftPupil = new THREE.Mesh(eyeBlackGeo, eyeBlackMat);
+leftPupil.position.set(0, 0, 0.25);
+leftEye.add(leftPupil);
+
+// Mata Kanan
+const rightEye = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
+rightEye.position.set(0.4, 2.2, 0.9);
+const rightPupil = new THREE.Mesh(eyeBlackGeo, eyeBlackMat);
+rightPupil.position.set(0, 0, 0.25);
+rightEye.add(rightPupil);
+
+playerGroup.add(leftEye);
+playerGroup.add(rightEye);
+scene.add(playerGroup);
+
+// State Player
+const player = { x: 0, z: 0, targetAngle: 0 };
+
+// ===== GRUP UNTUK MAP & ITEM =====
+// Digunakan agar mudah dihapus saat Restart
+const mapGroup = new THREE.Group();
+const itemGroup = new THREE.Group();
+scene.add(mapGroup);
+scene.add(itemGroup);
+
+// ===== FUNGSI INISIALISASI PETA =====
 function initMap() {
+    // Hapus peta lama jika ada
+    mapGroup.clear();
+
+    // Buat array peta 2D (0 = tanah, 1 = air)
     map = Array(MAP_HEIGHT).fill().map(() => Array(MAP_WIDTH).fill(0));
-    // Danau tengah
-    for (let row = 2; row < 6; row++)
-        for (let col = 6; col < 10; col++)
-            map[row][col] = 1;
-    // Rintangan kiri bawah
-    for (let row = 8; row < 11; row++) {
-        map[row][2] = 1;
-        map[row][3] = 1;
+
+    // Desain rintangan air
+    for (let row = 2; row < 6; row++) for (let col = 6; col < 10; col++) map[row][col] = 1;
+    for (let row = 8; row < 11; row++) { map[row][2] = 1; map[row][3] = 1; }
+    for (let row = 1; row < 4; row++) { map[row][14] = 1; map[row][15] = 1; }
+    map[9][13] = 1; map[10][13] = 1;
+
+    // Material 3D
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27 });
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x2c6e9e, transparent: true, opacity: 0.85 });
+
+    // Loop untuk membuat kotak 3D
+    for (let row = 0; row < MAP_HEIGHT; row++) {
+        for (let col = 0; col < MAP_WIDTH; col++) {
+            const isWater = map[row][col] === 1;
+            
+            // Tanah dasar
+            const groundGeo = new THREE.BoxGeometry(TILE_SIZE, 1, TILE_SIZE);
+            const groundMesh = new THREE.Mesh(groundGeo, grassMat);
+            groundMesh.position.set(col * TILE_SIZE, -0.5, row * TILE_SIZE);
+            groundMesh.receiveShadow = true;
+            mapGroup.add(groundMesh);
+
+            // Jika air, taruh kotak biru di atas tanah
+            if (isWater) {
+                const waterGeo = new THREE.BoxGeometry(TILE_SIZE, 1.2, TILE_SIZE);
+                const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+                waterMesh.position.set(col * TILE_SIZE, 0.1, row * TILE_SIZE);
+                mapGroup.add(waterMesh);
+            }
+        }
     }
-    // Rintangan kanan atas
-    for (let row = 1; row < 4; row++) {
-        map[row][14] = 1;
-        map[row][15] = 1;
-    }
-    // Genangan kecil
-    map[9][13] = 1;
-    map[10][13] = 1;
 }
 
-// ===== ITEMS INIT =====
+// ===== FUNGSI INISIALISASI ITEM (RUMPUT) =====
 function initItems() {
-    const raw = [
-        { x: 5,  y: 4 }, { x: 12, y: 3 },
-        { x: 15, y: 8 }, { x: 17, y: 5 },
-        { x: 10, y: 9 }, { x: 18, y: 10 },
-        { x: 5,  y: 10 }, { x: 13, y: 2 }
+    itemGroup.clear();
+    items = [];
+
+    const rawItems = [
+        { x: 5, z: 4 }, { x: 12, z: 3 }, { x: 15, z: 8 }, { x: 17, z: 5 },
+        { x: 10, z: 9 }, { x: 18, z: 10 }, { x: 5, z: 10 }, { x: 13, z: 2 }
     ];
-    items = raw
-        .filter(it => map[it.y] && map[it.y][it.x] === 0)
-        .map(it => ({ ...it, collected: false }));
+    
+    // Material rumput (hijau menyala)
+    const grassItemMat = new THREE.MeshStandardMaterial({ 
+        color: 0x7cfc00, 
+        emissive: 0x336600, 
+        emissiveIntensity: 0.6 
+    });
+    // Bentuk rumput (kerucut)
+    const itemGeo = new THREE.ConeGeometry(0.9, 2.8, 5);
+
+    rawItems.forEach(it => {
+        if (map[it.z] && map[it.z][it.x] === 0) { // Pastikan tidak muncul di air
+            const mesh = new THREE.Mesh(itemGeo, grassItemMat);
+            mesh.position.set(it.x * TILE_SIZE, 1.8, it.z * TILE_SIZE);
+            mesh.castShadow = true;
+            
+            // Simpan data animasi melayang
+            mesh.userData = { baseY: 1.8, offset: Math.random() * Math.PI * 2 };
+            
+            itemGroup.add(mesh);
+            items.push({ x: it.x, z: it.z, mesh: mesh, collected: false });
+        }
+    });
     grassTotalEl.textContent = items.length;
 }
 
-// ===== PLAYER INIT =====
+// ===== FUNGSI INISIALISASI PLAYER =====
 function initPlayer() {
-    let sx = 10, sy = 6;
-    if (map[sy][sx] === 1) {
+    let sx = 10, sz = 6;
+    
+    // Cari posisi aman (bukan air) jika spawn awal ternyata di air
+    if (map[sz][sx] === 1) {
         outer:
-        for (let y = 0; y < MAP_HEIGHT; y++)
-            for (let x = 0; x < MAP_WIDTH; x++)
-                if (map[y][x] === 0) { sx = x; sy = y; break outer; }
+        for (let z = 0; z < MAP_HEIGHT; z++) {
+            for (let x = 0; x < MAP_WIDTH; x++) {
+                if (map[z][x] === 0) { sx = x; sz = z; break outer; }
+            }
+        }
     }
-    player.x = sx * TILE_SIZE + TILE_SIZE / 2;
-    player.y = sy * TILE_SIZE + TILE_SIZE / 2;
-    player.facing = 0;
+    
+    player.x = sx * TILE_SIZE;
+    player.z = sz * TILE_SIZE;
+    player.targetAngle = 0;
+    playerGroup.position.set(player.x, 0, player.z);
 }
 
-// ===== UI =====
+// ===== UPDATE UI SKOR =====
 function updateUI() {
     const n = items.filter(i => i.collected).length;
     grassCountEl.textContent = n;
 }
 
-// ===== COLLISION (pixel-based) =====
-function canMoveTo(px, py) {
-    const r = PLAYER_RADIUS - 2;
-    const pts = [
-        [px - r, py - r], [px + r, py - r],
-        [px - r, py + r], [px + r, py + r]
+// ===== DETEKSI TABRAKAN (COLLISION) =====
+function canMoveTo(nx, nz) {
+    // Cek 4 sudut karakter
+    const checkPoints = [
+        { x: nx - PLAYER_RADIUS, z: nz - PLAYER_RADIUS },
+        { x: nx + PLAYER_RADIUS, z: nz - PLAYER_RADIUS },
+        { x: nx - PLAYER_RADIUS, z: nz + PLAYER_RADIUS },
+        { x: nx + PLAYER_RADIUS, z: nz + PLAYER_RADIUS }
     ];
-    for (const [x, y] of pts) {
-        const tx = Math.floor(x / TILE_SIZE);
-        const ty = Math.floor(y / TILE_SIZE);
-        if (tx < 0 || tx >= MAP_WIDTH || ty < 0 || ty >= MAP_HEIGHT) return false;
-        if (map[ty][tx] === 1) return false;
+
+    for (let p of checkPoints) {
+        const tx = Math.floor(p.x / TILE_SIZE);
+        const tz = Math.floor(p.z / TILE_SIZE);
+        
+        // Cek batas peta
+        if (tx < 0 || tx >= MAP_WIDTH || tz < 0 || tz >= MAP_HEIGHT) return false;
+        // Cek air
+        if (map[tz][tx] === 1) return false; 
     }
     return true;
 }
 
-// ===== UPDATE =====
-function update(dt) {
-    let vx = 0, vy = 0;
+// ===== LOOP UPDATE (LOGIKA GAME) =====
+const clock = new THREE.Clock();
+
+function update() {
+    const dt = Math.min(clock.getDelta(), 0.1); // Batasi delta time agar tidak error saat lag
+    const time = clock.getElapsedTime();
+
+    // 1. Animasi Rumput (Berputar & Melayang)
+    items.forEach(item => {
+        if (!item.collected && item.mesh) {
+            item.mesh.rotation.y += dt * 2.5;
+            // Gerakan naik turun menggunakan Sinus
+            item.mesh.position.y = item.mesh.userData.baseY + Math.sin(time * 3 + item.mesh.userData.offset) * 0.3;
+        }
+    });
+
+    // 2. Baca Input (Joystick atau Keyboard)
+    let moveX = 0;
+    let moveZ = 0;
 
     if (joystick.active && (joystick.dx !== 0 || joystick.dy !== 0)) {
-        vx = joystick.dx;
-        vy = joystick.dy;
+        moveX = joystick.dx;
+        moveZ = joystick.dy;
     } else {
-        if (keys.left)  vx -= 1;
-        if (keys.right) vx += 1;
-        if (keys.up)    vy -= 1;
-        if (keys.down)  vy += 1;
-        if (vx !== 0 && vy !== 0) {
-            const len = Math.hypot(vx, vy);
-            vx /= len; vy /= len;
-        }
+        if (keys.left) moveX -= 1;
+        if (keys.right) moveX += 1;
+        if (keys.up) moveZ -= 1;
+        if (keys.down) moveZ += 1;
     }
 
-    if (vx !== 0 || vy !== 0) {
-        player.facing = Math.atan2(vy, vx);
+    // 3. Pergerakan & Rotasi Karakter
+    if (moveX !== 0 || moveZ !== 0) {
+        // Normalisasi kecepatan agar diagonal tidak lebih cepat
+        const length = Math.hypot(moveX, moveZ);
+        moveX /= length;
+        moveZ /= length;
 
-        const mx = vx * SPEED * dt;
-        const my = vy * SPEED * dt;
+        // Tentukan arah hadap
+        player.targetAngle = Math.atan2(moveX, moveZ);
+        
+        // Rotasi halus (Smooth rotation)
+        let diff = player.targetAngle - playerGroup.rotation.y;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        playerGroup.rotation.y += diff * 12 * dt;
 
-        if (canMoveTo(player.x + mx, player.y)) player.x += mx;
-        if (canMoveTo(player.x, player.y + my)) player.y += my;
+        // Hitung posisi baru
+        const nx = player.x + moveX * SPEED * dt;
+        const nz = player.z + moveZ * SPEED * dt;
+
+        // Cek tabrakan per sumbu (agar karakter bisa "geser" di dinding)
+        if (canMoveTo(nx, player.z)) player.x = nx;
+        if (canMoveTo(player.x, nz)) player.z = nz;
+
+        // Update posisi 3D
+        playerGroup.position.set(player.x, 0, player.z);
     }
 
-    // Item collection - based on player center tile
-    const tx = Math.floor(player.x / TILE_SIZE);
-    const ty = Math.floor(player.y / TILE_SIZE);
-    const item = items.find(i => i.x === tx && i.y === ty && !i.collected);
-    if (item) {
-        item.collected = true;
-        updateUI();
-    }
-}
-
-// ===== DRAW =====
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Map
-    for (let row = 0; row < MAP_HEIGHT; row++) {
-        for (let col = 0; col < MAP_WIDTH; col++) {
-            if (map[row][col] === 0) {
-                ctx.fillStyle = ((row + col) % 2 === 0) ? '#2d5a27' : '#336b2c';
-            } else {
-                ctx.fillStyle = '#2c6e9e';
+    // 4. Deteksi Ambil Item
+    items.forEach(item => {
+        if (!item.collected) {
+            const dist = Math.hypot((item.x * TILE_SIZE) - player.x, (item.z * TILE_SIZE) - player.z);
+            if (dist < 2.5) { // Jarak deteksi
+                item.collected = true;
+                item.mesh.visible = false;
+                updateUI();
             }
-            ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-            ctx.strokeRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
-    }
+    });
 
-    // Items (dengan efek glow)
-    const t = Date.now() / 400;
-    for (const item of items) {
-        if (item.collected) continue;
-        const cx = item.x * TILE_SIZE + TILE_SIZE / 2;
-        const cy = item.y * TILE_SIZE + TILE_SIZE / 2;
-        const glow = 0.5 + 0.5 * Math.sin(t);
-
-        ctx.fillStyle = `rgba(124, 252, 0, ${glow * 0.3})`;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 18 + glow * 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#2e8b2e';
-        ctx.fillRect(cx - 1, cy + 2, 2, 10);
-
-        ctx.fillStyle = '#7cfc00';
-        ctx.beginPath(); ctx.ellipse(cx - 5, cy - 2, 6, 4, -0.5, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(cx + 5, cy - 2, 6, 4, 0.5, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(cx, cy - 8, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Player
-    const px = player.x, py = player.y;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.beginPath();
-    ctx.ellipse(px, py + 12, 12, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#00f2ea';
-    ctx.beginPath();
-    ctx.arc(px, py, PLAYER_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#00a8a2';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Mata mengikuti arah
-    const ex = Math.cos(player.facing) * 4;
-    const ey = Math.sin(player.facing) * 4;
-    ctx.fillStyle = '#001f1d';
-    ctx.beginPath(); ctx.arc(px - 4 + ex, py - 2 + ey, 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(px + 4 + ex, py - 2 + ey, 2.5, 0, Math.PI * 2); ctx.fill();
-
-    // Win overlay
-    const n = items.filter(i => i.collected).length;
-    if (items.length > 0 && n === items.length) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffd700';
-        ctx.font = 'bold 44px Arial';
-        ctx.fillText('🎉 Semua Rumput Terkumpul!', canvas.width / 2, canvas.height / 2 - 10);
-        ctx.fillStyle = '#fff';
-        ctx.font = '20px Arial';
-        ctx.fillText('Tap 🔄 untuk main lagi', canvas.width / 2, canvas.height / 2 + 40);
-    }
+    // 5. Kamera Follow (Third-Person)
+    // Kamera berada di belakang (Z positif) dan atas (Y positif)
+    const targetCamPos = new THREE.Vector3(player.x, 18, player.z + 22); 
+    
+    // Efek Lerp agar kamera bergerak mulus
+    camera.position.lerp(targetCamPos, 6 * dt);
+    camera.lookAt(player.x, 2, player.z);
 }
 
-// ===== GAME LOOP =====
-let lastTime = 0;
-function gameLoop(timestamp) {
-    const dt = lastTime ? Math.min((timestamp - lastTime) / 1000, 0.05) : 0;
-    lastTime = timestamp;
-    if (gameStarted) update(dt);
-    draw();
-    requestAnimationFrame(gameLoop);
+// ===== GAME LOOP (RENDER) =====
+function animate() {
+    requestAnimationFrame(animate);
+    if (isGameStarted) update();
+    renderer.render(scene, camera);
 }
 
-// ===== KEYBOARD (desktop) =====
+// ===== EVENT LISTENER (KEYBOARD) =====
 document.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
-    if (!gameStarted && ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) {
-        enterGameMode();
-    }
-    if (k === 'w' || k === 'arrowup')    keys.up = true;
-    if (k === 's' || k === 'arrowdown')  keys.down = true;
-    if (k === 'a' || k === 'arrowleft')  keys.left = true;
+    if (!isGameStarted && ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) enterGameMode();
+    if (k === 'w' || k === 'arrowup') keys.up = true;
+    if (k === 's' || k === 'arrowdown') keys.down = true;
+    if (k === 'a' || k === 'arrowleft') keys.left = true;
     if (k === 'd' || k === 'arrowright') keys.right = true;
-    if (['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
 });
 
 document.addEventListener('keyup', (e) => {
     const k = e.key.toLowerCase();
-    if (k === 'w' || k === 'arrowup')    keys.up = false;
-    if (k === 's' || k === 'arrowdown')  keys.down = false;
-    if (k === 'a' || k === 'arrowleft')  keys.left = false;
+    if (k === 'w' || k === 'arrowup') keys.up = false;
+    if (k === 's' || k === 'arrowdown') keys.down = false;
+    if (k === 'a' || k === 'arrowleft') keys.left = false;
     if (k === 'd' || k === 'arrowright') keys.right = false;
 });
 
-// ===== JOYSTICK =====
+// ===== EVENT LISTENER (JOYSTICK / TOUCH) =====
 function getJoyCenter() {
     const r = joystickEl.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -260,27 +342,22 @@ function updateJoystick(clientX, clientY) {
         dx = (dx / dist) * maxDist;
         dy = (dy / dist) * maxDist;
     }
-
     joyStickEl.style.transform = `translate(${dx}px, ${dy}px)`;
 
     const nx = dx / maxDist;
     const ny = dy / maxDist;
-    const len = Math.hypot(nx, ny);
-
-    if (len > 0.15) {
+    
+    // Deadzone (jika geser sedikit, abaikan)
+    if (Math.hypot(nx, ny) > 0.15) {
         joystick.dx = nx;
         joystick.dy = ny;
     } else {
-        joystick.dx = 0;
-        joystick.dy = 0;
+        joystick.dx = 0; joystick.dy = 0;
     }
 }
 
 function resetJoystick() {
-    joystick.active = false;
-    joystick.dx = 0;
-    joystick.dy = 0;
-    joystick.touchId = null;
+    joystick.active = false; joystick.dx = 0; joystick.dy = 0; joystick.touchId = null;
     joyStickEl.style.transform = 'translate(0, 0)';
 }
 
@@ -310,22 +387,44 @@ function joyEnd(e) {
 joystickEl.addEventListener('touchend', joyEnd);
 joystickEl.addEventListener('touchcancel', joyEnd);
 
-// Mouse fallback (testing di desktop)
-joystickEl.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    joystick.active = true;
-    updateJoystick(e.clientX, e.clientY);
-    const onMove = (ev) => updateJoystick(ev.clientX, ev.clientY);
-    const onUp = () => {
-        resetJoystick();
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+// ===== FITUR FULLSCREEN & LANDSCAPE =====
+async function enterGameMode() {
+    startOverlay.classList.remove('show');
+    isGameStarted = true;
+    
+    // Minta Fullscreen & Lock Orientasi (Khusus Mobile)
+    try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+        
+        if (screen.orientation && screen.orientation.lock) {
+            await screen.orientation.lock('landscape');
+        }
+    } catch (err) {
+        console.log("Fullscreen/Lock tidak didukung di browser ini.");
+    }
+    checkOrientation();
+}
+
+startBtn.addEventListener('click', enterGameMode);
+
+// Deteksi jika HP masih Portrait (Berdiri)
+function checkOrientation() {
+    const isPortrait = window.innerHeight > window.innerWidth;
+    if (isPortrait && isGameStarted) rotateOverlay.classList.add('show');
+    else rotateOverlay.classList.remove('show');
+}
+
+// Handle Resize layar
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    checkOrientation();
 });
 
-// ===== RESTART =====
+// ===== TOMBOL RESTART =====
 restartBtn.addEventListener('click', () => {
     initMap();
     initItems();
@@ -333,51 +432,9 @@ restartBtn.addEventListener('click', () => {
     updateUI();
 });
 
-// ===== ENTER GAME MODE (fullscreen + orientation lock) =====
-async function enterGameMode() {
-    startOverlay.classList.remove('show');
-    gameStarted = true;
-
-    if (isTouchDevice) {
-        try {
-            const el = document.documentElement;
-            if (el.requestFullscreen) await el.requestFullscreen();
-            else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
-        } catch (err) {}
-
-        try {
-            if (screen.orientation && screen.orientation.lock) {
-                await screen.orientation.lock('landscape');
-            }
-        } catch (err) {}
-    }
-
-    checkOrientation();
-}
-startBtn.addEventListener('click', enterGameMode);
-
-// ===== ORIENTATION DETECTION =====
-function checkOrientation() {
-    const isPortrait = window.innerHeight > window.innerWidth;
-    if (isTouchDevice && isPortrait && gameStarted) {
-        rotateOverlay.classList.add('show');
-    } else {
-        rotateOverlay.classList.remove('show');
-    }
-}
-window.addEventListener('resize', checkOrientation);
-window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 200));
-
-// ===== INIT =====
+// ===== JALANKAN GAME =====
 initMap();
 initItems();
 initPlayer();
 updateUI();
-
-// Show joystick & start overlay
-joystickEl.classList.add('active');
-startOverlay.classList.add('show');
-checkOrientation();
-
-// Start loop
-requestAnimationFrame(gameLoop);
+animate();
