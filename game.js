@@ -11,30 +11,29 @@ const startOverlay = document.getElementById('startOverlay');
 const startBtn = document.getElementById('startBtn');
 
 // ===== KONFIGURASI GAME =====
-const TILE_SIZE = 4;       // Ukuran 1 kotak peta dalam 3D
+const TILE_SIZE = 4;       
 const MAP_WIDTH = 20;
 const MAP_HEIGHT = 12;
-const SPEED = 14;          // Kecepatan jalan karakter
-const PLAYER_RADIUS = 1.5; // Radius tabrakan karakter
+const SPEED = 14;          
+const PLAYER_RADIUS = 1.5; 
 
-let map = [];              // Array 2D untuk data peta (0 = tanah, 1 = air)
-let items = [];            // Array untuk data rumput
+let map = [];              
+let items = [];            
 let isGameStarted = false;
 
-// State Input
 let joystick = { active: false, dx: 0, dy: 0, touchId: null };
 let keys = { up: false, down: false, left: false, right: false };
 
-// ===== SETUP THREE.JS (SCENE, CAMERA, RENDERER) =====
+// ===== SETUP THREE.JS =====
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // Warna langit
-scene.fog = new THREE.Fog(0x87CEEB, 40, 90);  // Efek kabut di kejauhan
+scene.background = new THREE.Color(0x87CEEB); // Langit biru
+scene.fog = new THREE.Fog(0x87CEEB, 40, 90);  
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true; // Aktifkan bayangan
+renderer.shadowMap.enabled = true;
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 // Pencahayaan
@@ -52,10 +51,10 @@ dirLight.shadow.camera.top = 50;
 dirLight.shadow.camera.bottom = -50;
 scene.add(dirLight);
 
-// ===== KARAKTER 3D (PLAYER) =====
+// ===== KARAKTER 3D =====
 const playerGroup = new THREE.Group();
 
-// Badan Karakter (Kapsul)
+// Badan
 const bodyGeo = new THREE.CapsuleGeometry(1, 1.2, 4, 16);
 const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00f2ea, roughness: 0.2 });
 const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
@@ -63,20 +62,18 @@ bodyMesh.castShadow = true;
 bodyMesh.position.y = 1.6;
 playerGroup.add(bodyMesh);
 
-// Mata (Putih & Hitam)
+// Mata
 const eyeWhiteGeo = new THREE.SphereGeometry(0.35, 16, 16);
 const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const eyeBlackGeo = new THREE.SphereGeometry(0.15, 16, 16);
 const eyeBlackMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
-// Mata Kiri
 const leftEye = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
 leftEye.position.set(-0.4, 2.2, 0.9);
 const leftPupil = new THREE.Mesh(eyeBlackGeo, eyeBlackMat);
 leftPupil.position.set(0, 0, 0.25);
 leftEye.add(leftPupil);
 
-// Mata Kanan
 const rightEye = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
 rightEye.position.set(0.4, 2.2, 0.9);
 const rightPupil = new THREE.Mesh(eyeBlackGeo, eyeBlackMat);
@@ -87,22 +84,17 @@ playerGroup.add(leftEye);
 playerGroup.add(rightEye);
 scene.add(playerGroup);
 
-// State Player
 const player = { x: 0, z: 0, targetAngle: 0 };
 
 // ===== GRUP UNTUK MAP & ITEM =====
-// Digunakan agar mudah dihapus saat Restart
 const mapGroup = new THREE.Group();
 const itemGroup = new THREE.Group();
 scene.add(mapGroup);
 scene.add(itemGroup);
 
-// ===== FUNGSI INISIALISASI PETA =====
+// ===== FUNGSI INISIALISASI MAP =====
 function initMap() {
-    // Hapus peta lama jika ada
-    mapGroup.clear();
-
-    // Buat array peta 2D (0 = tanah, 1 = air)
+    mapGroup.clear(); // Hapus peta lama
     map = Array(MAP_HEIGHT).fill().map(() => Array(MAP_WIDTH).fill(0));
 
     // Desain rintangan air
@@ -111,23 +103,21 @@ function initMap() {
     for (let row = 1; row < 4; row++) { map[row][14] = 1; map[row][15] = 1; }
     map[9][13] = 1; map[10][13] = 1;
 
-    // Material 3D
     const grassMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27 });
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x2c6e9e, transparent: true, opacity: 0.85 });
 
-    // Loop untuk membuat kotak 3D
     for (let row = 0; row < MAP_HEIGHT; row++) {
         for (let col = 0; col < MAP_WIDTH; col++) {
             const isWater = map[row][col] === 1;
             
-            // Tanah dasar
+            // Tanah
             const groundGeo = new THREE.BoxGeometry(TILE_SIZE, 1, TILE_SIZE);
             const groundMesh = new THREE.Mesh(groundGeo, grassMat);
             groundMesh.position.set(col * TILE_SIZE, -0.5, row * TILE_SIZE);
             groundMesh.receiveShadow = true;
             mapGroup.add(groundMesh);
 
-            // Jika air, taruh kotak biru di atas tanah
+            // Air
             if (isWater) {
                 const waterGeo = new THREE.BoxGeometry(TILE_SIZE, 1.2, TILE_SIZE);
                 const waterMesh = new THREE.Mesh(waterGeo, waterMat);
@@ -138,7 +128,7 @@ function initMap() {
     }
 }
 
-// ===== FUNGSI INISIALISASI ITEM (RUMPUT) =====
+// ===== FUNGSI INISIALISASI ITEM =====
 function initItems() {
     itemGroup.clear();
     items = [];
@@ -148,22 +138,14 @@ function initItems() {
         { x: 10, z: 9 }, { x: 18, z: 10 }, { x: 5, z: 10 }, { x: 13, z: 2 }
     ];
     
-    // Material rumput (hijau menyala)
-    const grassItemMat = new THREE.MeshStandardMaterial({ 
-        color: 0x7cfc00, 
-        emissive: 0x336600, 
-        emissiveIntensity: 0.6 
-    });
-    // Bentuk rumput (kerucut)
-    const itemGeo = new THREE.ConeGeometry(0.9, 2.8, 5);
+    const grassItemMat = new THREE.MeshStandardMaterial({ color: 0x7cfc00, emissive: 0x336600, emissiveIntensity: 0.6 });
+    const itemGeo = new THREE.ConeGeometry(0.9, 2.8, 5); // Bentuk pohon/rumput 3D
 
     rawItems.forEach(it => {
-        if (map[it.z] && map[it.z][it.x] === 0) { // Pastikan tidak muncul di air
+        if (map[it.z] && map[it.z][it.x] === 0) {
             const mesh = new THREE.Mesh(itemGeo, grassItemMat);
             mesh.position.set(it.x * TILE_SIZE, 1.8, it.z * TILE_SIZE);
             mesh.castShadow = true;
-            
-            // Simpan data animasi melayang
             mesh.userData = { baseY: 1.8, offset: Math.random() * Math.PI * 2 };
             
             itemGroup.add(mesh);
@@ -176,8 +158,6 @@ function initItems() {
 // ===== FUNGSI INISIALISASI PLAYER =====
 function initPlayer() {
     let sx = 10, sz = 6;
-    
-    // Cari posisi aman (bukan air) jika spawn awal ternyata di air
     if (map[sz][sx] === 1) {
         outer:
         for (let z = 0; z < MAP_HEIGHT; z++) {
@@ -186,22 +166,18 @@ function initPlayer() {
             }
         }
     }
-    
     player.x = sx * TILE_SIZE;
     player.z = sz * TILE_SIZE;
     player.targetAngle = 0;
     playerGroup.position.set(player.x, 0, player.z);
 }
 
-// ===== UPDATE UI SKOR =====
 function updateUI() {
-    const n = items.filter(i => i.collected).length;
-    grassCountEl.textContent = n;
+    grassCountEl.textContent = items.filter(i => i.collected).length;
 }
 
-// ===== DETEKSI TABRAKAN (COLLISION) =====
+// ===== DETEKSI TABRAKAN =====
 function canMoveTo(nx, nz) {
-    // Cek 4 sudut karakter
     const checkPoints = [
         { x: nx - PLAYER_RADIUS, z: nz - PLAYER_RADIUS },
         { x: nx + PLAYER_RADIUS, z: nz - PLAYER_RADIUS },
@@ -212,35 +188,29 @@ function canMoveTo(nx, nz) {
     for (let p of checkPoints) {
         const tx = Math.floor(p.x / TILE_SIZE);
         const tz = Math.floor(p.z / TILE_SIZE);
-        
-        // Cek batas peta
         if (tx < 0 || tx >= MAP_WIDTH || tz < 0 || tz >= MAP_HEIGHT) return false;
-        // Cek air
-        if (map[tz][tx] === 1) return false; 
+        if (map[tz][tx] === 1) return false; // Tabrak air
     }
     return true;
 }
 
-// ===== LOOP UPDATE (LOGIKA GAME) =====
+// ===== UPDATE LOOP =====
 const clock = new THREE.Clock();
 
 function update() {
-    const dt = Math.min(clock.getDelta(), 0.1); // Batasi delta time agar tidak error saat lag
+    const dt = Math.min(clock.getDelta(), 0.1);
     const time = clock.getElapsedTime();
 
-    // 1. Animasi Rumput (Berputar & Melayang)
+    // Animasi Rumput
     items.forEach(item => {
         if (!item.collected && item.mesh) {
             item.mesh.rotation.y += dt * 2.5;
-            // Gerakan naik turun menggunakan Sinus
             item.mesh.position.y = item.mesh.userData.baseY + Math.sin(time * 3 + item.mesh.userData.offset) * 0.3;
         }
     });
 
-    // 2. Baca Input (Joystick atau Keyboard)
-    let moveX = 0;
-    let moveZ = 0;
-
+    // Input
+    let moveX = 0, moveZ = 0;
     if (joystick.active && (joystick.dx !== 0 || joystick.dy !== 0)) {
         moveX = joystick.dx;
         moveZ = joystick.dy;
@@ -251,39 +221,33 @@ function update() {
         if (keys.down) moveZ += 1;
     }
 
-    // 3. Pergerakan & Rotasi Karakter
+    // Gerak Player
     if (moveX !== 0 || moveZ !== 0) {
-        // Normalisasi kecepatan agar diagonal tidak lebih cepat
         const length = Math.hypot(moveX, moveZ);
         moveX /= length;
         moveZ /= length;
 
-        // Tentukan arah hadap
         player.targetAngle = Math.atan2(moveX, moveZ);
         
-        // Rotasi halus (Smooth rotation)
         let diff = player.targetAngle - playerGroup.rotation.y;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         playerGroup.rotation.y += diff * 12 * dt;
 
-        // Hitung posisi baru
         const nx = player.x + moveX * SPEED * dt;
         const nz = player.z + moveZ * SPEED * dt;
 
-        // Cek tabrakan per sumbu (agar karakter bisa "geser" di dinding)
         if (canMoveTo(nx, player.z)) player.x = nx;
         if (canMoveTo(player.x, nz)) player.z = nz;
 
-        // Update posisi 3D
         playerGroup.position.set(player.x, 0, player.z);
     }
 
-    // 4. Deteksi Ambil Item
+    // Ambil Item
     items.forEach(item => {
         if (!item.collected) {
             const dist = Math.hypot((item.x * TILE_SIZE) - player.x, (item.z * TILE_SIZE) - player.z);
-            if (dist < 2.5) { // Jarak deteksi
+            if (dist < 2.5) {
                 item.collected = true;
                 item.mesh.visible = false;
                 updateUI();
@@ -291,23 +255,20 @@ function update() {
         }
     });
 
-    // 5. Kamera Follow (Third-Person)
-    // Kamera berada di belakang (Z positif) dan atas (Y positif)
+    // Kamera Third-Person (Kamera di belakang dan atas player)
     const targetCamPos = new THREE.Vector3(player.x, 18, player.z + 22); 
-    
-    // Efek Lerp agar kamera bergerak mulus
     camera.position.lerp(targetCamPos, 6 * dt);
     camera.lookAt(player.x, 2, player.z);
 }
 
-// ===== GAME LOOP (RENDER) =====
+// ===== RENDER LOOP =====
 function animate() {
     requestAnimationFrame(animate);
     if (isGameStarted) update();
     renderer.render(scene, camera);
 }
 
-// ===== EVENT LISTENER (KEYBOARD) =====
+// ===== INPUT KEYBOARD =====
 document.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (!isGameStarted && ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) enterGameMode();
@@ -325,7 +286,7 @@ document.addEventListener('keyup', (e) => {
     if (k === 'd' || k === 'arrowright') keys.right = false;
 });
 
-// ===== EVENT LISTENER (JOYSTICK / TOUCH) =====
+// ===== INPUT JOYSTICK (TOUCH) =====
 function getJoyCenter() {
     const r = joystickEl.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -347,7 +308,6 @@ function updateJoystick(clientX, clientY) {
     const nx = dx / maxDist;
     const ny = dy / maxDist;
     
-    // Deadzone (jika geser sedikit, abaikan)
     if (Math.hypot(nx, ny) > 0.15) {
         joystick.dx = nx;
         joystick.dy = ny;
@@ -387,12 +347,11 @@ function joyEnd(e) {
 joystickEl.addEventListener('touchend', joyEnd);
 joystickEl.addEventListener('touchcancel', joyEnd);
 
-// ===== FITUR FULLSCREEN & LANDSCAPE =====
+// ===== FULLSCREEN & LANDSCAPE =====
 async function enterGameMode() {
     startOverlay.classList.remove('show');
     isGameStarted = true;
     
-    // Minta Fullscreen & Lock Orientasi (Khusus Mobile)
     try {
         const el = document.documentElement;
         if (el.requestFullscreen) await el.requestFullscreen();
@@ -402,21 +361,19 @@ async function enterGameMode() {
             await screen.orientation.lock('landscape');
         }
     } catch (err) {
-        console.log("Fullscreen/Lock tidak didukung di browser ini.");
+        console.log("Fullscreen/Lock gagal.");
     }
     checkOrientation();
 }
 
 startBtn.addEventListener('click', enterGameMode);
 
-// Deteksi jika HP masih Portrait (Berdiri)
 function checkOrientation() {
     const isPortrait = window.innerHeight > window.innerWidth;
     if (isPortrait && isGameStarted) rotateOverlay.classList.add('show');
     else rotateOverlay.classList.remove('show');
 }
 
-// Handle Resize layar
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -424,7 +381,7 @@ window.addEventListener('resize', () => {
     checkOrientation();
 });
 
-// ===== TOMBOL RESTART =====
+// ===== RESTART =====
 restartBtn.addEventListener('click', () => {
     initMap();
     initItems();
@@ -432,7 +389,7 @@ restartBtn.addEventListener('click', () => {
     updateUI();
 });
 
-// ===== JALANKAN GAME =====
+// ===== JALANKAN =====
 initMap();
 initItems();
 initPlayer();
