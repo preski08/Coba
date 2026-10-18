@@ -3,207 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#1a1a1a">
-    <title>🌿 Grass Collector</title>
+    <title>🌿 Grass Collector 3D</title>
     <style>
-        * {
-            margin: 0; padding: 0; box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-            -webkit-user-select: none; user-select: none;
-            -webkit-touch-callout: none;
-        }
-        html, body {
-            width: 100%; height: 100%;
-            overflow: hidden;
-            background: #1a1a1a;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            color: white;
-            touch-action: none;
-            overscroll-behavior: none;
-        }
-        #app {
-            position: fixed; inset: 0;
-            display: flex;
-            justify-content: center; align-items: center;
-            padding: 10px;
-        }
-        #gameWrapper {
-            width: 100%; height: 100%;
-            display: flex;
-            justify-content: center; align-items: center;
-        }
-        canvas {
-            max-width: 100%;
-            max-height: 100%;
-            width: auto;
-            height: auto;
-            border-radius: 8px;
-            background-color: #2d5a27;
-            display: block;
-            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
-            touch-action: none;
-        }
-
-        /* === HUD === */
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; font-family: 'Segoe UI', Arial, sans-serif; color: white; touch-action: none; }
+        
+        /* Container Canvas 3D */
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        /* HUD Skor */
         #hud {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 15px;
-            z-index: 10;
-            border: 1px solid rgba(124, 252, 0, 0.3);
-            backdrop-filter: blur(6px);
+            position: fixed; top: 15px; right: 15px;
+            display: flex; gap: 10px; align-items: center;
+            background: rgba(0, 0, 0, 0.7); padding: 8px 16px;
+            border-radius: 20px; font-size: 16px; z-index: 10;
+            border: 1px solid rgba(124, 252, 0, 0.3); backdrop-filter: blur(6px);
         }
-        #grassCount { color: #7cfc00; font-weight: bold; font-size: 17px; }
-        #grassTotal { color: #aaa; }
-        #restartBtn {
-            background: #7cfc00; color: #000;
-            border: none;
-            padding: 4px 12px;
-            border-radius: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        #restartBtn:active { transform: scale(0.95); }
+        #grassCount { color: #7cfc00; font-weight: bold; font-size: 18px; }
+        #restartBtn { background: #7cfc00; color: #000; border: none; padding: 5px 14px; border-radius: 14px; font-weight: bold; cursor: pointer; }
 
-        /* === JOYSTICK === */
+        /* Joystick Analog */
         #joystick {
-            position: fixed;
-            bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-            left: 20px;
-            width: 140px;
-            height: 140px;
-            z-index: 100;
-            display: none;
-            touch-action: none;
+            position: fixed; bottom: calc(25px + env(safe-area-inset-bottom, 0px)); left: 25px;
+            width: 130px; height: 130px; z-index: 100; display: block; touch-action: none;
         }
-        #joystick.active { display: block; }
         .joy-base {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
-            border: 2px solid rgba(255, 255, 255, 0.25);
-            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 0, 0, 0.4);
-        }
-        .joy-base::after {
-            content: '';
-            position: absolute;
-            inset: 30%;
-            border-radius: 50%;
-            border: 1px dashed rgba(255, 255, 255, 0.15);
+            position: absolute; inset: 0; border-radius: 50%;
+            background: rgba(255,255,255,0.1); border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
         }
         .joy-stick {
-            position: absolute;
-            width: 60px; height: 60px;
-            left: 50%; top: 50%;
-            margin-left: -30px; margin-top: -30px;
-            border-radius: 50%;
+            position: absolute; width: 60px; height: 60px; left: 50%; top: 50%;
+            margin-left: -30px; margin-top: -30px; border-radius: 50%;
             background: radial-gradient(circle at 30% 30%, #a5ff4d, #4a9a00);
-            border: 2px solid rgba(255, 255, 255, 0.5);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
-            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); pointer-events: none;
             will-change: transform;
         }
 
-        /* === ROTATE OVERLAY === */
-        #rotateOverlay {
-            position: fixed; inset: 0;
-            background: rgba(10, 20, 10, 0.98);
-            display: none;
-            flex-direction: column;
-            justify-content: center; align-items: center;
-            z-index: 1000;
-            text-align: center;
-            padding: 30px;
+        /* Overlays (Layar Awal & Putar HP) */
+        #rotateOverlay, #startOverlay {
+            position: fixed; inset: 0; background: rgba(10, 15, 10, 0.95);
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000; text-align: center; padding: 20px; backdrop-filter: blur(8px);
         }
-        #rotateOverlay.show { display: flex; }
-        #rotateOverlay .icon {
-            font-size: 90px;
-            margin-bottom: 25px;
-            animation: rotateHint 2s ease-in-out infinite;
-        }
-        @keyframes rotateHint {
-            0%, 100% { transform: rotate(0deg); }
-            50% { transform: rotate(90deg); }
-        }
-        #rotateOverlay h2 {
-            margin-bottom: 12px;
-            color: #7cfc00;
-            font-size: 24px;
-        }
-        #rotateOverlay p {
-            color: #aaa;
-            font-size: 15px;
-            max-width: 320px;
-            line-height: 1.5;
-        }
-
-        /* === START OVERLAY === */
-        #startOverlay {
-            position: fixed; inset: 0;
-            background: linear-gradient(135deg, rgba(26,26,26,0.96) 0%, rgba(10,61,10,0.96) 100%);
-            backdrop-filter: blur(6px);
-            display: none;
-            flex-direction: column;
-            justify-content: center; align-items: center;
-            z-index: 1001;
-            text-align: center;
-            padding: 30px;
-        }
-        #startOverlay.show { display: flex; }
-        #startOverlay h1 {
-            color: #7cfc00;
-            font-size: 34px;
-            margin-bottom: 15px;
-            text-shadow: 0 0 20px rgba(124, 252, 0, 0.5);
-        }
-        #startOverlay p {
-            color: #ccc;
-            margin-bottom: 30px;
-            font-size: 15px;
-            max-width: 340px;
-            line-height: 1.5;
-        }
+        #rotateOverlay.show, #startOverlay.show { display: flex; }
+        #startOverlay h1 { color: #7cfc00; font-size: 36px; margin-bottom: 10px; text-shadow: 0 0 20px rgba(124, 252, 0, 0.5); }
+        #startOverlay p { color: #ccc; margin-bottom: 30px; font-size: 16px; max-width: 400px; line-height: 1.5; }
         #startBtn {
-            background: linear-gradient(135deg, #7cfc00, #5ac000);
-            color: #000;
-            border: none;
-            padding: 18px 52px;
-            border-radius: 50px;
-            font-size: 20px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 8px 25px rgba(124, 252, 0, 0.4);
-            transition: transform 0.15s;
+            background: linear-gradient(135deg, #7cfc00, #5ac000); color: #000;
+            border: none; padding: 18px 50px; border-radius: 50px; font-size: 20px; font-weight: bold; cursor: pointer;
+            transition: transform 0.1s;
         }
         #startBtn:active { transform: scale(0.95); }
-
-        /* Landscape tweaks */
-        @media (orientation: landscape) and (max-height: 500px) {
-            #hud { font-size: 13px; padding: 4px 10px; }
-            #grassCount { font-size: 15px; }
-            #joystick { width: 120px; height: 120px; bottom: 15px; left: 15px; }
-            .joy-stick { width: 52px; height: 52px; margin-left: -26px; margin-top: -26px; }
-            #startOverlay h1 { font-size: 26px; }
-        }
+        
+        #rotateOverlay .icon { font-size: 80px; margin-bottom: 20px; animation: rotateHint 2s infinite; }
+        @keyframes rotateHint { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(90deg); } }
     </style>
+    
+    <!-- Import Three.js (Library 3D) dari CDN -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
 </head>
 <body>
-    <div id="app">
-        <div id="gameWrapper">
-            <canvas id="gameCanvas" width="800" height="480"></canvas>
-        </div>
-    </div>
+    <div id="canvas-container"></div>
 
     <div id="hud">
         <span>🌿 <span id="grassCount">0</span>/<span id="grassTotal">0</span></span>
@@ -218,15 +85,16 @@
     <div id="rotateOverlay">
         <div class="icon">📱</div>
         <h2>Putar HP Kamu</h2>
-        <p>Game ini lebih seru dalam mode landscape (mendatar). Putar HP kamu 90°.</p>
+        <p>Game 3D ini lebih seru dalam mode landscape (mendatar). Putar HP kamu 90 derajat.</p>
     </div>
 
     <div id="startOverlay">
-        <h1>🌿 Grass Collector</h1>
-        <p>Gunakan <b>analog stick</b> (tombol bulat di kiri bawah) untuk menggerakkan karakter. Kumpulkan semua rumput!</p>
+        <h1>🌿 Grass Collector 3D</h1>
+        <p>Gunakan <b>analog stick</b> (tombol bulat di kiri bawah) untuk menggerakkan karakter. Kumpulkan semua rumput 3D!</p>
         <button id="startBtn">▶ MULAI MAIN</button>
     </div>
 
-    <script src="game.js"></script>
+    <!-- Panggil logika game -->
+    <script type="module" src="game.js"></script>
 </body>
 </html>
